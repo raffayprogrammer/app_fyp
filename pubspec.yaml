@@ -1,0 +1,68 @@
+name: safety_guardian
+description: "AI-Powered Public Safety And Incident Reporting Platform"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI
+  cupertino_icons: ^1.0.8
+  google_fonts: ^6.1.0
+  iconsax: ^0.0.8
+  flutter_svg: ^2.0.9
+  
+  # Firebase
+  firebase_core: ^3.12.0
+  firebase_storage: ^12.4.4
+  firebase_auth: ^5.5.0
+  cloud_firestore: ^5.6.0
+  firebase_messaging: ^15.1.4
+  
+  # Location & Camera
+  geolocator: ^13.0.2
+  image_picker: ^1.1.2
+  permission_handler: ^11.3.1
+  
+  # Storage & Utilities
+  shared_preferences: ^2.3.2
+  provider: ^6.1.2
+  email_validator: ^3.0.0
+  intl: ^0.19.0
+  
+  # HTTP
+  dio: ^5.4.0
+  
+  # Evidence Capture
+  camera: ^0.10.5
+  path_provider: ^2.1.0
+  saver_gallery: ^4.1.1
+  flutter_foreground_task: ^9.2.2
+  another_telephony: ^0.4.1
+  phone_state: ^3.0.0
+
+  # Distress Detection (sensors)
+  sensors_plus: ^6.0.0
+
+  # Face verification (ML Kit on-device face detection)
+  google_mlkit_face_detection: ^0.13.0
+  image: ^4.1.0
+  
+  # SOS Module (ONLY url_launcher)
+  url_launcher: ^6.3.2
+
+  #For atomatic calling 
+  direct_caller_sim_choice: ^1.0.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
