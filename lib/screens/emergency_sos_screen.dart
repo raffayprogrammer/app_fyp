@@ -62,6 +62,25 @@ class _EmergencySOSScreenState extends State<EmergencySOSScreen>
     _pulseScale = Tween<double>(begin: 1.0, end: 1.2).animate(
       CurvedAnimation(parent: _pulseAnimation, curve: Curves.easeInOut),
     );
+
+    _refreshContactsFromService();
+  }
+
+  // Pull the real saved trusted contacts (from SharedPreferences via
+  // SosService) so the UI mirrors what the SOS cascade will actually call.
+  Future<void> _refreshContactsFromService() async {
+    await _sosService.loadContacts();
+    if (!mounted) return;
+    setState(() {
+      _trustedContacts = _sosService.trustedContacts
+          .map((c) => {
+                'name': c['name'] ?? '',
+                'phone': c['phone'] ?? '',
+                'status': 'waiting',
+                'called': false,
+              })
+          .toList();
+    });
   }
 
   @override
@@ -497,6 +516,19 @@ class _EmergencySOSScreenState extends State<EmergencySOSScreen>
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
                               ),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const ManageContactsScreen(),
+                                  ),
+                                );
+                                await _refreshContactsFromService();
+                              },
+                              icon: const Icon(Iconsax.setting_2, size: 16),
+                              label: const Text('Manage'),
                             ),
                           ],
                         ),
