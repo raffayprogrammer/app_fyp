@@ -12,6 +12,8 @@ import '../services/priority_classifier.dart';
 import '../services/face_service.dart';
 import '../services/face_blur_service.dart';
 import 'package:dio/dio.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
+import 'location_picker_screen.dart';
 
 class IncidentReportScreen extends StatefulWidget {
   const IncidentReportScreen({super.key});
@@ -66,6 +68,9 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
   String? _selfieStatus;
   bool _isAnonymous = false;
   bool _isLoading = false;
+  // Map-picked coordinates (overrides current GPS if user explicitly picked).
+  double? _pickedLatitude;
+  double? _pickedLongitude;
 
   // Categories for dropdown - FIXED ICONS (removed 'skull')
   final List<Map<String, dynamic>> _categories = [
@@ -273,10 +278,20 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
         final user = FirebaseAuth.instance.currentUser;
         if (user == null) throw Exception('Not logged in');
 
-        // Get location
-        Position position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-        );
+        // Use map-picked coordinates if the user picked one; otherwise fall
+        // back to the device's current GPS reading.
+        double latitude;
+        double longitude;
+        if (_pickedLatitude != null && _pickedLongitude != null) {
+          latitude = _pickedLatitude!;
+          longitude = _pickedLongitude!;
+        } else {
+          final position = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.high,
+          );
+          latitude = position.latitude;
+          longitude = position.longitude;
+        }
 
         // UPLOAD IMAGES TO CLOUDINARY.
         // If the report is anonymous, auto-blur any detected faces before
@@ -314,8 +329,8 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
           'category': _selectedCategory,
           'title': _titleController.text.trim(),
           'description': _descriptionController.text.trim(),
-          'latitude': position.latitude,
-          'longitude': position.longitude,
+          'latitude': latitude,
+          'longitude': longitude,
           'address': _locationController.text.trim(),
           'date': _selectedDate != null
               ? Timestamp.fromDate(_selectedDate!)
@@ -348,6 +363,8 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
           _selectedImages.clear();
           _verificationSelfie = null;
           _selfieStatus = null;
+          _pickedLatitude = null;
+          _pickedLongitude = null;
         });
 
         Navigator.pop(context);
@@ -657,15 +674,28 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
                               Iconsax.map,
                               color: Color(0xFF2563EB),
                             ),
-                            onPressed: () {
-                              // TODO: Open Google Maps picker
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'Google Maps picker will open here',
+                            onPressed: () async {
+                              final result =
+                                  await Navigator.push<LocationPickerResult>(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => LocationPickerScreen(
+                                    initialPosition: _pickedLatitude != null
+                                        ? LatLng(
+                                            _pickedLatitude!,
+                                            _pickedLongitude!,
+                                          )
+                                        : null,
                                   ),
                                 ),
                               );
+                              if (result != null) {
+                                setState(() {
+                                  _pickedLatitude = result.latitude;
+                                  _pickedLongitude = result.longitude;
+                                  _locationController.text = result.address;
+                                });
+                              }
                             },
                           ),
                           border: OutlineInputBorder(

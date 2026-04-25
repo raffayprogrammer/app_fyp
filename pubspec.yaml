@@ -52,6 +52,10 @@ dependencies:
   # Face verification (ML Kit on-device face detection)
   google_mlkit_face_detection: ^0.13.0
   image: ^4.1.0
+
+  # Google Maps + reverse geocoding for location picker (Module 4)
+  google_maps_flutter: ^2.5.0
+  geocoding: ^3.0.0
   
   # SOS Module (ONLY url_launcher)
   url_launcher: ^6.3.2
