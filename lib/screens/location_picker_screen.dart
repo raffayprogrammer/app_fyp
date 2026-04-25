@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart';
 
 class LocationPickerResult {
   final double latitude;
@@ -25,7 +26,7 @@ class LocationPickerScreen extends StatefulWidget {
 }
 
 class _LocationPickerScreenState extends State<LocationPickerScreen> {
-  GoogleMapController? _mapController;
+  final MapController _mapController = MapController();
   LatLng? _picked;
   String _address = 'Loading address…';
   bool _resolving = false;
@@ -50,7 +51,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       final here = LatLng(pos.latitude, pos.longitude);
       setState(() => _picked = here);
       await _resolveAddress(here);
-      _mapController?.animateCamera(CameraUpdate.newLatLngZoom(here, 16));
+      _mapController.move(here, 16);
     } catch (_) {}
   }
 
@@ -108,27 +109,36 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       ),
       body: Stack(
         children: [
-          GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: _picked ?? _fallback,
-              zoom: 14,
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _picked ?? _fallback,
+              initialZoom: 14,
+              onTap: (tapPosition, point) => _onTap(point),
             ),
-            onMapCreated: (c) => _mapController = c,
-            onTap: _onTap,
-            markers: _picked == null
-                ? {}
-                : {
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.example.safety_guardian',
+                maxNativeZoom: 19,
+              ),
+              if (_picked != null)
+                MarkerLayer(
+                  markers: [
                     Marker(
-                      markerId: const MarkerId('picked'),
-                      position: _picked!,
-                      draggable: true,
-                      onDragEnd: _onTap,
+                      point: _picked!,
+                      width: 40,
+                      height: 40,
+                      child: const Icon(
+                        Icons.location_on,
+                        color: Colors.red,
+                        size: 40,
+                      ),
                     ),
-                  },
-            myLocationEnabled: true,
-            myLocationButtonEnabled: true,
+                  ],
+                ),
+            ],
           ),
-          // Address card on top of map
           Positioned(
             left: 12,
             right: 12,

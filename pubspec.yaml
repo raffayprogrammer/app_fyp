@@ -53,8 +53,9 @@ dependencies:
   google_mlkit_face_detection: ^0.13.0
   image: ^4.1.0
 
-  # Google Maps + reverse geocoding for location picker (Module 4)
-  google_maps_flutter: ^2.5.0
+  # OpenStreetMap (free, no API key) + reverse geocoding for location picker (Module 4)
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
   geocoding: ^3.0.0
   
   # SOS Module (ONLY url_launcher)

@@ -2,9 +2,10 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:iconsax/iconsax.dart';
+import 'package:latlong2/latlong.dart';
 import 'location_picker_screen.dart';
 import '../services/sos_service.dart';
 
@@ -19,7 +20,7 @@ class CompanionModeScreen extends StatefulWidget {
 }
 
 class _CompanionModeScreenState extends State<CompanionModeScreen> {
-  GoogleMapController? _mapController;
+  final MapController _mapController = MapController();
 
   LatLng? _currentLocation;
   LatLng? _destination;
@@ -54,9 +55,7 @@ class _CompanionModeScreenState extends State<CompanionModeScreen> {
         _currentLocation = LatLng(pos.latitude, pos.longitude);
         _lastPosition = pos;
       });
-      _mapController?.animateCamera(
-        CameraUpdate.newLatLngZoom(_currentLocation!, 15),
-      );
+      _mapController.move(_currentLocation!, 15);
     } catch (_) {}
   }
 
@@ -72,7 +71,7 @@ class _CompanionModeScreenState extends State<CompanionModeScreen> {
         _destination = LatLng(result.latitude, result.longitude);
         _destinationAddress = result.address;
       });
-      _mapController?.animateCamera(CameraUpdate.newLatLngZoom(_destination!, 14));
+      _mapController.move(_destination!, 14);
     }
   }
 
@@ -110,7 +109,6 @@ class _CompanionModeScreenState extends State<CompanionModeScreen> {
       _deviationFlagged = false;
     });
 
-    // Live position updates -> drive the marker on the map.
     _positionSub = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
@@ -122,41 +120,18 @@ class _CompanionModeScreenState extends State<CompanionModeScreen> {
         _lastPosition = pos;
         _currentLocation = LatLng(pos.latitude, pos.longitude);
       });
-      _mapController?.animateCamera(CameraUpdate.newLatLng(_currentLocation!));
+      _mapController.move(_currentLocation!, _mapController.camera.zoom);
       _checkRouteDeviation();
     });
 
-    // Push location to Firestore every 15 seconds.
     _firestorePushTimer = Timer.periodic(
       const Duration(seconds: 15),
       (_) => _pushUpdate(),
     );
-    // Also push immediately so a viewer sees the session right away.
     await _writeSessionStart();
     _pushUpdate();
   }
 
-  Future<void> _writeSessionStart() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null || _destination == null) return;
-    await FirebaseFirestore.instance
-        .collection('companion_sessions')
-        .doc(user.uid)
-        .set({
-      'userId': user.uid,
-      'userEmail': user.email,
-      'destination': {
-        'lat': _destination!.latitude,
-        'lng': _destination!.longitude,
-        'address': _destinationAddress,
-      },
-      'startedAt': FieldValue.serverTimestamp(),
-      'active': true,
-    });
-  }
-
-  // Route-deviation check: compare last 4 distance-to-destination readings.
-  // Each consecutive reading must grow by > 10 m (above GPS jitter) to flag.
   void _checkRouteDeviation() {
     if (_lastPosition == null || _destination == null || _deviationFlagged) {
       return;
@@ -217,7 +192,6 @@ class _CompanionModeScreenState extends State<CompanionModeScreen> {
           ElevatedButton.icon(
             onPressed: () {
               Navigator.pop(ctx);
-              // Auto-triggered: try every trusted contact in order before 15.
               SosService().startSos(sequential: true);
             },
             icon: const Icon(Icons.warning, size: 18),
@@ -247,6 +221,25 @@ class _CompanionModeScreenState extends State<CompanionModeScreen> {
     }, SetOptions(merge: true));
     if (!mounted) return;
     setState(() => _updatesPushed += 1);
+  }
+
+  Future<void> _writeSessionStart() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || _destination == null) return;
+    await FirebaseFirestore.instance
+        .collection('companion_sessions')
+        .doc(user.uid)
+        .set({
+      'userId': user.uid,
+      'userEmail': user.email,
+      'destination': {
+        'lat': _destination!.latitude,
+        'lng': _destination!.longitude,
+        'address': _destinationAddress,
+      },
+      'startedAt': FieldValue.serverTimestamp(),
+      'active': true,
+    });
   }
 
   Future<void> _stop() async {
@@ -297,38 +290,36 @@ class _CompanionModeScreenState extends State<CompanionModeScreen> {
     return '${m}m ${s}s';
   }
 
-  Set<Marker> _buildMarkers() {
-    final markers = <Marker>{};
+  List<Marker> _buildMarkers() {
+    final markers = <Marker>[];
     if (_currentLocation != null) {
       markers.add(Marker(
-        markerId: const MarkerId('me'),
-        position: _currentLocation!,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-        infoWindow: const InfoWindow(title: 'You'),
+        point: _currentLocation!,
+        width: 40,
+        height: 40,
+        child: const Icon(Icons.my_location, color: Colors.blue, size: 36),
       ));
     }
     if (_destination != null) {
       markers.add(Marker(
-        markerId: const MarkerId('destination'),
-        position: _destination!,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-        infoWindow: InfoWindow(title: 'Destination', snippet: _destinationAddress),
+        point: _destination!,
+        width: 40,
+        height: 40,
+        child: const Icon(Icons.location_on, color: Colors.red, size: 40),
       ));
     }
     return markers;
   }
 
-  Set<Polyline> _buildPolylines() {
-    if (_currentLocation == null || _destination == null) return {};
-    return {
+  List<Polyline> _buildPolylines() {
+    if (_currentLocation == null || _destination == null) return [];
+    return [
       Polyline(
-        polylineId: const PolylineId('route'),
         points: [_currentLocation!, _destination!],
         color: const Color(0xFF2563EB),
-        width: 4,
-        patterns: [PatternItem.dash(20), PatternItem.gap(10)],
+        strokeWidth: 4,
       ),
-    };
+    ];
   }
 
   @override
@@ -342,16 +333,21 @@ class _CompanionModeScreenState extends State<CompanionModeScreen> {
       body: Column(
         children: [
           Expanded(
-            child: GoogleMap(
-              initialCameraPosition: CameraPosition(
-                target: _currentLocation ?? const LatLng(33.7710, 72.3596),
-                zoom: 14,
+            child: FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(
+                initialCenter: _currentLocation ?? const LatLng(33.7710, 72.3596),
+                initialZoom: 14,
               ),
-              onMapCreated: (c) => _mapController = c,
-              markers: _buildMarkers(),
-              polylines: _buildPolylines(),
-              myLocationEnabled: true,
-              myLocationButtonEnabled: true,
+              children: [
+                TileLayer(
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'com.example.safety_guardian',
+                  maxNativeZoom: 19,
+                ),
+                PolylineLayer(polylines: _buildPolylines()),
+                MarkerLayer(markers: _buildMarkers()),
+              ],
             ),
           ),
           Container(

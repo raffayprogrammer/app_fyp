@@ -12,7 +12,7 @@ import '../services/priority_classifier.dart';
 import '../services/face_service.dart';
 import '../services/face_blur_service.dart';
 import 'package:dio/dio.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
+import 'package:latlong2/latlong.dart' show LatLng;
 import 'location_picker_screen.dart';
 
 class IncidentReportScreen extends StatefulWidget {
