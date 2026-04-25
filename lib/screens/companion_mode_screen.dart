@@ -217,7 +217,8 @@ class _CompanionModeScreenState extends State<CompanionModeScreen> {
           ElevatedButton.icon(
             onPressed: () {
               Navigator.pop(ctx);
-              SosService().startSos();
+              // Auto-triggered: try every trusted contact in order before 15.
+              SosService().startSos(sequential: true);
             },
             icon: const Icon(Icons.warning, size: 18),
             label: const Text('Help'),

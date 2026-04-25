@@ -5,6 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:direct_caller_sim_choice/direct_caller_sim_choice.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:math';
 
 class SosService {
   final Telephony telephony = Telephony.instance;
@@ -13,7 +14,6 @@ class SosService {
   List<Map<String, String>> trustedContacts = [];
   
   bool _isSosActive = false;
-  int _currentContactIndex = 0;
   
   // Load contacts from storage
   Future<void> loadContacts() async {
@@ -97,23 +97,18 @@ class SosService {
       print('No phone number provided');
       return;
     }
-    
-    if (phoneNumber == '15') {
+    // Try a direct auto-dial first (works on most devices for normal numbers
+    // and on some Samsung builds for emergency numbers like 15). If Android
+    // blocks the direct call (typical for emergency numbers on stock builds),
+    // fall back to opening the dialer with the number pre-filled.
+    try {
+      await directCaller.makePhoneCall(phoneNumber);
+      print('📞 Auto-calling: $phoneNumber');
+    } catch (e) {
+      print('❌ Auto-call failed for $phoneNumber: $e — falling back to dialer');
       Uri telUri = Uri(scheme: 'tel', path: phoneNumber);
       if (await canLaunchUrl(telUri)) {
         await launchUrl(telUri);
-        print('📞 Police dialer opened for: $phoneNumber');
-      }
-    } else {
-      try {
-        await directCaller.makePhoneCall(phoneNumber);
-        print('📞 Auto-calling: $phoneNumber');
-      } catch (e) {
-        print('❌ Auto-call failed: $e');
-        Uri telUri = Uri(scheme: 'tel', path: phoneNumber);
-        if (await canLaunchUrl(telUri)) {
-          await launchUrl(telUri);
-        }
       }
     }
   }
@@ -132,50 +127,76 @@ class SosService {
     }
   }
   
-  Future<void> startSos() async {
+  /// Starts the SOS flow.
+  ///
+  /// [sequential]:
+  /// - false (default, manual SOS button): pick ONE random trusted contact,
+  ///   wait 30s, escalate to Police 15.
+  /// - true (auto-triggered: distress detection / route deviation): walk
+  ///   through ALL trusted contacts in saved order, 30s each, then escalate
+  ///   to Police 15 if none responded.
+  Future<void> startSos({bool sequential = false}) async {
     await loadContacts();
-    
+
     bool hasPermission = await requestPermissions();
     if (!hasPermission) {
       print('Permissions not granted');
       return;
     }
-    
+
     _isSosActive = true;
-    _currentContactIndex = 0;
-    
+
     String locationLink = await getCurrentLocationLink();
     String sosMessage = '🚨 EMERGENCY! I need help. Location: $locationLink';
-    
-    await callNextContact(sosMessage);
-  }
-  
-  Future<void> callNextContact(String sosMessage) async {
-    if (!_isSosActive) return;
-    if (_currentContactIndex >= trustedContacts.length) {
+
+    final validContacts = trustedContacts
+        .where((c) => c['phone'] != null && c['phone']!.isNotEmpty)
+        .toList();
+
+    if (validContacts.isEmpty) {
+      print('No trusted contacts with phone numbers — escalating directly to 15');
       await _escalateToPolice(sosMessage);
       _isSosActive = false;
       return;
     }
 
-    Map<String, String> contact = trustedContacts[_currentContactIndex];
-
-    // Skip if no phone number
-    if (contact['phone'] == null || contact['phone']!.isEmpty) {
-      print('Skipping ${contact['name']} - no phone number');
-      _currentContactIndex++;
-      await callNextContact(sosMessage);
-      return;
+    if (sequential) {
+      await _runSequentialCascade(validContacts, sosMessage);
+    } else {
+      await _runRandomPick(validContacts, sosMessage);
     }
+    _isSosActive = false;
+  }
 
-    print('Processing: ${contact['name']} - ${contact['phone']}');
+  Future<void> _runRandomPick(
+    List<Map<String, String>> validContacts,
+    String sosMessage,
+  ) async {
+    final picked = validContacts[Random().nextInt(validContacts.length)];
+    print('Trying random trusted contact: ${picked['name']} - ${picked['phone']}');
+    await sendSms(picked['phone']!, sosMessage);
+    await makeCall(picked['phone']!);
 
-    await sendSms(contact['phone']!, sosMessage);
-    await makeCall(contact['phone']!);
+    await Future.delayed(const Duration(seconds: 30));
+    if (_isSosActive) {
+      await _escalateToPolice(sosMessage);
+    }
+  }
 
-    _currentContactIndex++;
-    await Future.delayed(Duration(seconds: 30));
-    await callNextContact(sosMessage);
+  Future<void> _runSequentialCascade(
+    List<Map<String, String>> validContacts,
+    String sosMessage,
+  ) async {
+    for (final contact in validContacts) {
+      if (!_isSosActive) return;
+      print('Trying ${contact['name']} - ${contact['phone']}');
+      await sendSms(contact['phone']!, sosMessage);
+      await makeCall(contact['phone']!);
+      await Future.delayed(const Duration(seconds: 30));
+    }
+    if (_isSosActive) {
+      await _escalateToPolice(sosMessage);
+    }
   }
 
   // Escalates to Pakistan Police emergency (15) when all trusted contacts

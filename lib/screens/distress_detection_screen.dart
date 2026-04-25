@@ -232,9 +232,10 @@ class _DistressDetectionScreenState extends State<DistressDetectionScreen>
 
   void _activateEmergency() {
     _addAlert('🚨 EMERGENCY ACTIVATED');
-    // Fire the real SOS flow: sequential contact calls/SMS, then escalation
-    // to Police 15 if no one responds (see Module 12 cascade in SosService).
-    _sosService.startSos();
+    // Auto-triggered emergency: try every trusted contact in order before
+    // escalating to Police 15 (sequential cascade — wider net than the
+    // random-pick used by the manual SOS button).
+    _sosService.startSos(sequential: true);
 
     showDialog(
       context: context,
