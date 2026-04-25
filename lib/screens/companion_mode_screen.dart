@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:iconsax/iconsax.dart';
 import 'location_picker_screen.dart';
+import '../services/sos_service.dart';
 
 /// Companion Mode — citizen shares live location while traveling.
 /// Pushes current GPS to Firestore every ~15 seconds while active so trusted
@@ -31,6 +32,12 @@ class _CompanionModeScreenState extends State<CompanionModeScreen> {
   int _updatesPushed = 0;
 
   bool _active = false;
+
+  // Route-deviation detection: keep the last few distance-to-destination
+  // readings. If each consecutive reading grows by more than 10m, the user
+  // is moving AWAY from the destination — flag it once per session.
+  final List<double> _recentDistances = [];
+  bool _deviationFlagged = false;
 
   @override
   void initState() {
@@ -99,6 +106,8 @@ class _CompanionModeScreenState extends State<CompanionModeScreen> {
       _active = true;
       _startedAt = DateTime.now();
       _updatesPushed = 0;
+      _recentDistances.clear();
+      _deviationFlagged = false;
     });
 
     // Live position updates -> drive the marker on the map.
@@ -114,6 +123,7 @@ class _CompanionModeScreenState extends State<CompanionModeScreen> {
         _currentLocation = LatLng(pos.latitude, pos.longitude);
       });
       _mapController?.animateCamera(CameraUpdate.newLatLng(_currentLocation!));
+      _checkRouteDeviation();
     });
 
     // Push location to Firestore every 15 seconds.
@@ -143,6 +153,82 @@ class _CompanionModeScreenState extends State<CompanionModeScreen> {
       'startedAt': FieldValue.serverTimestamp(),
       'active': true,
     });
+  }
+
+  // Route-deviation check: compare last 4 distance-to-destination readings.
+  // Each consecutive reading must grow by > 10 m (above GPS jitter) to flag.
+  void _checkRouteDeviation() {
+    if (_lastPosition == null || _destination == null || _deviationFlagged) {
+      return;
+    }
+    final dist = Geolocator.distanceBetween(
+      _lastPosition!.latitude,
+      _lastPosition!.longitude,
+      _destination!.latitude,
+      _destination!.longitude,
+    );
+    _recentDistances.add(dist);
+    if (_recentDistances.length > 4) _recentDistances.removeAt(0);
+
+    if (_recentDistances.length < 4) return;
+    for (int i = 1; i < _recentDistances.length; i++) {
+      if (_recentDistances[i] - _recentDistances[i - 1] < 10) return;
+    }
+
+    _deviationFlagged = true;
+    _writeDeviationFlag();
+    _showDeviationDialog();
+  }
+
+  Future<void> _writeDeviationFlag() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    await FirebaseFirestore.instance
+        .collection('companion_sessions')
+        .doc(user.uid)
+        .set({
+      'deviationDetected': true,
+      'deviationAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  void _showDeviationDialog() {
+    if (!mounted) return;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning, color: Colors.orange),
+            SizedBox(width: 8),
+            Text('Possible Route Deviation'),
+          ],
+        ),
+        content: const Text(
+          'You appear to be moving away from your destination. Are you safe?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("I'm OK"),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              SosService().startSos();
+            },
+            icon: const Icon(Icons.warning, size: 18),
+            label: const Text('Help'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _pushUpdate() async {
